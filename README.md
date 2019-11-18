@@ -1319,7 +1319,7 @@ Mostraremos todos agendamentos o usuário tem e com quais prestadores de serviç
 É legal mostrar uma quantidade menor de agendamentos por páginas para usuários
 que possuam muitos agendamentos.
 ### Mas como?
-Existe a opção 'Query', para passagem de parâmetros. url/appointments?page=1
+Existe a opção 'Query', para passagem de parâmetros anexado na URL. url/appointments?page=1
 
 Aí eu precisarei pegar essa informação
 ```
@@ -1339,3 +1339,69 @@ Aí eu precisarei pegar essa informação
     ....
   }
 ```
+
+## O que faremos agora é a listar os agendamentos do prestador de serviços.
+Então quando o prestador de serviços acessar a aplicação dele para ver quais agendamentos ele tem no dia,
+ele precisa ter uma listagem única. Para isso criaremos uma nova rota e um novo controller **ScheduleController.js**.
+> import ScheduleController from './app/controller/ScheduleController';
+> routes.get('/schedule', ScheduleController.index);
+```
+  import { startOfDay, endOfDay, parseISO } from 'date-fns';
+  import { Op } from 'sequelize';
+
+  import User from '../models/User';
+  import Appointment from '../models/Appointment';
+
+  class ScheduleController{
+    async index(req, res) {
+      
+      // 1. Preciso fazer a verificação se o usuário logado é um prestador de serviços
+      const checkUserProvider = await User.findOne({
+        where: { id: req.userId, provider: true },
+          // Lembrando que o req.userId vem pelo header por conta do middleware
+      });
+
+      if (!checkUserProvider) {
+        res.status(401).json({ error: 'User is not a provider' });
+      }
+
+      const { date } = req.query;
+      const parsedDate = parseISO(date);
+
+      const appointments = await appointment.findAll({
+        where: {
+          provider_id: req.userId,
+          canceled_at: null,
+          date: {
+          // Para data precisarei fazer uma verificação(operação between),
+          // basicamente vou pegar a primeira hora do dia que seria 00:00:00
+          // e a última hora do dia, e vou ver todos agendamentos que estão
+          // entre aqueles valores. Mas como? A biblioteca do 'date-fns' possui
+          // os operadores startOfDay e endOfDay. Por isso começaremos importando-os.
+          // Inclusive o parseISO para transformar a data de String para Objeto.
+          // Importaremos também o operador do Sequelize, boas práticas.
+            [Op.between]: [startOfDay(parsedDate), endOfDay(parsedDate)],
+              // Preciso coloca-los em volta de colchetes, por se tratar de uma variável e
+              // eu precisar do nome da propriedade deste objeto como nome pra chave no meu
+              // objeto. E o valor será um array com os dois valores que eu preciso comparar.
+          },
+          order: ['date']
+            // Por fim iremos ordena-los por data.
+        }
+      })
+
+      return res.json(appointments);
+    }
+  }
+
+  export default new ScheduleController();
+```
+
+Agora lá no insomnia criamos a pasta _Schedule_, pois crio uma pasta para cada controller. Em seguida, um método index.
+
+Feito isso, preciso garantir que estou logado como um prestador de serviços. Então voltando nas _Sessions_ vou informar o email e a senha para retornar um token **JWT**. Vou copiar o token e colocar no Bearer da ScheduleController.index
+
+  Quando nos referimos ao prestador de serviços, o que mais importa são os agendamentos do dia, sendo menos importante os dias que passaram e os dias futuros. Para isso enviaremos nos Query Params a data que ele quer visualizar, e assim listar todos agendamentos daquele dia.
+  > New name: date
+  > New value: 2019-06-22T00:00:00-3:00
+  da const { date } vou utilizar apenas o dia e o horário
