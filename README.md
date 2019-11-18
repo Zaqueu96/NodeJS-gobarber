@@ -1315,4 +1315,27 @@ Mostraremos todos agendamentos o usuário tem e com quais prestadores de serviç
       return res.json(appointments);
     }
   ```
-  
+## Paginação
+É legal mostrar uma quantidade menor de agendamentos por páginas para usuários
+que possuam muitos agendamentos.
+### Mas como?
+Existe a opção 'Query', para passagem de parâmetros. url/appointments?page=1
+
+Aí eu precisarei pegar essa informação
+```
+  ....
+  index(req, res){
+    const { page } = req.query;
+    // Se o page não for informado, por padrão o usuário estará na página 1.
+    const appointments = await Appointment.findAll({
+      ....
+      limit: 20,
+      offset: (page - 1) * 20,
+        // Se eu estiver na página 1, o resutado será (1 - 1) * 20 = 0, ou seja,
+        // não pularei nenhum registro. Já na página 2 pularei 20 registros e 
+        // listar os próximos 20, que será de 31 ao 40.
+      ....
+    })
+    ....
+  }
+```
