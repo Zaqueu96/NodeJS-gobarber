@@ -1,150 +1,3 @@
-# Sucrase
-O Node ainda utiliza a sintaxe do _CommonJS_, de require() e não suporta as funcionalidades mais recentes como o **"import/export"**.
-
-Para a nova sintaxe utilizaremos o Sucrase, que é extremamente rápido. Além do Nodemon para o live reload.
-
-### Instalando o Sucrase + Nodemon
-```
-  yarn add sucrase nodemon -D
-```
-##### Como usar o Sucrase
-Basta utilizar o **sucrase-node** antes do arquivo principal. Por exemplo:
-```
-  yarn sucrase-node src/serve.js
-```
-### Integrando Nodemon com Sucrase
->1 - O arquivo '_package.json_' precisará de um script personalizado para rodar 
-    os comandos da nossa aplicação.
-```
-  "scripts": {
-    "dev": "nodemon src/server.js"
-  }
-```
->2 - criar um arquivo *nodemon.json* na raíz do projeto com o seguinte código:
-```
-  {
-    "execMap": {
-      "js": "sucrase-node"
-    }
-  }
-```
-Essa configuração significa que todo arquivo '.js' executará o 'sucrase-node'.
-
-
-# Padronização do código
-É muito importante padronizarmos o código entre todos os devs além de ajudar em futuras manutenções.
-
-### eslint
-O eslint vai verificar se estamos seguindo os nossos padrões e corrigindo-os.
-##### Instalando o eslint
->1 - Instalando o eslint como dependência de desenvolvimento:
-```
-  yarn add eslint -D
-```
->2- Feito a instalação, iniciaremos um arquivo de configuração:
-```
-  yarn eslint --init
-```
-  1. How would you like to use Eslint?
-    - To check syntax, find problems, and enforce code style
-  2. What type of module does your project use?
-    - JavaScript modules (impor/export)
-  3. Which framework does your project use?
-    - None of these
-  4. Does your project use TypeScript? (y/N)
-    - N (Enter)
-  5. Where does your code run?
-    - Node (desselecionar, Browser e selecionar Node)
-  6. How would you like to define a style for your project?
-    - Use a popular style guide
-    - Airbnb
-  7. What format do you want your config file to be in?
-    - JavaScript
-> Would your like to install them now with npm?
-  (Enter)
-
-Feito a instalação, será criada na raiz do projeto um arquivo **.eslintrc.js**. 
-Caso esteja utilizando o yarn como package manager, basta excluir o arquivo
-_package-lock.json_ e executar o **yarn** que irá baixar novamente como 
-_yarn.lock_.
-
-### Configurando eslint
-Primeiro será necessário instalar uma extensão no VSCode, o ESLint 
-(Dirk Baeumer), que será responsável por mostrar os erros que estão fora do 
-padrão. 
-
-Ainda é possível configurar um **fix automático**. Nas configurações do VSCode, 
-_Ctrl + Shift + P_, em Preferences: Open Settings (JSON) eu preciso ter uma 
-propriedade configurada:
-```
-  "eslint.autoFixOnSave": true,
-  "eslint.validate" : [
-    {
-      "language": "javascript",
-      "autoFix": true
-    },
-    {
-      "language": "javascriptreact",
-      "autoFix": true
-    },
-    {
-      "language": "typescript",
-      "autoFix": true
-    },
-    {
-      "language": "typescriptreact",
-      "autoFix": true
-    },
-  ]
-```
-
-#### Sobrescrevendo algumas regras 
-Existe uma regra que toda classe deve utilizar o 'this';
-
-Não permite que eu receba um parâmetro e faça alterações;
-
-Eslint pede que todas variáveis sejam em camelCase;
-
-Não posso declarar variáveis que não vou utilizar. Porém tem alguns momentos que vou precisar declarar a variável next mesmo sem utilizar ela.
-```
-  rules: {
-    "class-methods-use-this": "off",
-    "no-param-reassign": "off",
-    "camelcase": "off",
-    "no-unused-vars": ["error", { "argsIgnorePattern": "next" }],
-  },
-```
-
-### Prettier
-Essa ferramenta deixa o nosso código mais bonito.
-> Para instalarmos precisaremos dos seguintes módulos:
-```
-  yarn add prettier eslint-config-prettier eslint-plugin-prettier -D
-```
-> Em seguida precisaremos acrescentar nas **rules** do eslint uma nova regra:
-```
-  rules: {
-    prettier/prettier: "error"
-    . . .
-  }
-  
-```
-> Adicionar a extensão e o plugin (que faz a integração)
-```
-  extends: [
-    'airbnb-base',
-    'prettier'
-  ],
-  plugins: [ 'prettier' ]
-```
-Com o prettier configurado, nota-se que algumas configurações do airbnb foram alteradas, para isso basta criar um arquivo **.prettierrc** na raiz do projeto e sobreescrever algumas regras como as aspas simples em string e a vírgula no final de objetos e arrays.
-```
-  {
-    "singleQuote": true,
-    "trailingComma": "es5"
-  }
-```
-
 # Docker
 ### Como funciona?
   O Docker serve para muitas coisas, como criação de ambientes isolados (container) que não vão interferir em outras ferramentas dentro do nosso servidor.
@@ -1405,3 +1258,28 @@ Feito isso, preciso garantir que estou logado como um prestador de serviços. En
   > New name: date
   > New value: 2019-06-22T00:00:00-3:00
   da const { date } vou utilizar apenas o dia e o horário
+
+# Configurando o MongoDB
+Utilizaremos um banco não relacional, porque teremos alguns dados que não serão estruturados e não terão relacionamentos e precisam ser extremamente performáticos. Ele também possui um ORM, o mongoose. Por isso começaremos usando o docker para subir um container rodando a imagem do MongoDB.
+> docker run --name mongobarber -p 27017:27017 -d -t mongo
+### E agora, como que eu faço para conectar a aplicação ao mongoDB?
+Começaremos baixando a dependência _mongoose_
+> yarn add mongoose
+E agora vou utilizar o mesmo _index_ que utilizamos na pasta _database_. No arquivo eu já tenho um método init(), então criarei um segundo método
+```
+  import mongoose from 'mongoose';
+  ....
+  class Database {
+    constructor(){
+      ....
+      this.mongo();
+    }
+    ....
+    mongo() {
+      this.mongooseConnection = mongoose.connect(
+        'mongodb://localhost:27017/gobarber',
+        { useNewUrlParser: true, useFindAndModify: true }
+      )
+    }
+  }
+```
