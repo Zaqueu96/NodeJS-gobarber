@@ -1,32 +1,3 @@
-# Arquitetura MVC
-  ##### Model
-  O model armazena a abstração do banco, utilizado para manipular os dados contidos nas tabelas do banco. Não possuem responsabilidades sobre a regra de negócio da nossa aplicação.
-  ##### Controller
-  O controller é o ponto de entrada das requisições da aplicação, uma rota geralmente está associada diretamente com um método do controller. Podemos incluir a grande parte das regras de negócio da aplicação nos controllers (conforme a aplicação cresce podemos isolar as regras).
-  ##### View
-  A view é o retorno ao cliente, em aplicações que sem o modelo API REST, pode ser um HTML, mas neste caso a view é apenas um JSON que será retornado ao front-end e depois manipulado pelo ReactJS ou React Native.
-## A face de um controller
-  - Ele basicamente é uma classe;
-  - Sempre retorna um JSON;
-  - Jamais vai chamar outro controller/ método;
-  - _Quando criar um novo controller?_
-      > Toda vez que a gente tem uma nova entidade
-
-      > entidade não é a mesma coisa que model, mas geralmente cada model tem seu próprio controller
-
-      > Mas pode ocorrer do controller não ter um model, exemplo: uma autenticação do usuário, não estou criando um novo usuário e sim uma sessão.
-
-    > **Sempre vai ter apenas 5 métodos**
-    ```
-      class UserController {
-        index()  { } // Listagem de usuários
-        show()   { } // Exibir um único usuário
-        store()  { } // Cadastrar usuário
-        update() { } // Alterar usuário
-        delete() { } // Remover usuário
-      }
-    ```
-
 # Configurando Sequelize
 Primeiro é necessário instalar a dependência **sequelize**
 ```
