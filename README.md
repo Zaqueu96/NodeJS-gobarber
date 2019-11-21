@@ -1123,3 +1123,598 @@ E agora vou utilizar o mesmo _index_ que utilizamos na pasta _database_. No arqu
     }
   }
 ```
+
+### Notificando novos agendamentos.
+  O que faremos agora é enviar uma notificação ao prestador de serviços, toda vez que receber um novo agendamento. Para isso usaremos o MongoDB, armazenaremos as notificações dentro do Mongo.
+  
+  Mas antes precisaremos criar um novo Schema dentro do mongo. Que seria como o model que representa uma tabela, mas também teremos uma pasta chamada **schemas**, que são models, porém, representados através de schemas. Porque no mongo não possuímos tabelas e sim schemas, que são quase a mesma coisa. A grande diferença é que nas tabelas os dados são estruturados, ou seja, a coluna das tabelas são iguais para todos os dados, pra todos os registros da tabela.
+
+  Dentro do MongoDB, há uma metodologia que se chama _schema free_, um registro que eu salvo pode ter uma informação enquanto o outro registro não. E também no Mongo não teremos as migrations, poderemos alterar os schemas no momento que desejarmos, mas precisa sempre ateção, pois se removermos um campo ele não poderá mais ser obtido. Por isso é necessário atenção nos processos de migração no mongo.
+
+  Utilizaremos o mongo para o salvar as notificaçãos, pois basicamente elas não possuem muitos relacionamentos, ela irá apenas relacionar-se com o _id_ do usuário. Ou seja, qual prestador de serviços vou enviar a notificação.
+
+  Vou começar criando uma pasta **schemas** dentro da pasta _app_, com um arquivo **Notification.js**.
+  ```
+    import mongoose from 'mongoose';
+
+    const NotificationSchema = new mongoose.Schema({
+      // Aqui dentro eu defino os campos, mesmo que estes schemas possam variar 
+      // muito de acordo com o tamanho da aplicação e com o tempo da aplicação no
+      // ar, preciso importar pelo menos os campos principais que utilizarei pro
+      // javascript, na hora que estiver salvando os dados dentro do schema, ele
+      // saiba quais campos ele pode adicionar lá dentro.
+      content: {
+        type: String,
+        required: true,
+      },
+      user: {
+        type: Number,
+          // O ID do usuário está em Integer, por isso utilizaremos Number no mongo
+        required: true,
+      },
+      read: {
+        // Verifica se a notificação foi lida ou não
+        type: Boolean,
+        required: true,
+        default: false,
+      }
+    }, {
+      timestamps: true,
+        // também quero os campos created_at e updated_at por padrão em todos registros
+    });
+
+    export default mongoose.model('Notification', NotificationSchema);
+  ```
+  Diferente do Sequelize, no mongo eu posso simplesmente importar o Schema e sair utilizando.
+
+  Agora no arquivo **AppointmentController.js** no momento em que criamos um novo agendamento, iremos também notificar o prestador de serviços.
+  ```
+    ....
+    import Notification from '../schemas/Notification';
+
+    class AppointmentController {
+      ....
+      const user = await User.findByPk(req.userId);
+        // O nome do usuário podemos pegar de Req.userId.
+
+      // A gente já tem uma variável hourStart que é exatamente a data que o 
+      // agendamento vai ser prestado. Porém preciso dar uma formatada nele.
+      // Usaremos novamente o date-fns, importando o { format } que nos dá 
+      // liberdade para formatarmos a data da forma que desejarmos.
+      const formattedDate = format(
+        hourStart,
+        "'dia' dd 'de' MMMM', às' H:mm'h'",
+          // O 'd' representa o dia. Então se eu escrever 'dia', ele irá trocar
+          // para '22ia', Por isso precisarei usar Aspas duplas e aí no date-fns
+          // todo lugar que usarmos aspas simples ele não trabalha como string
+          // Então se eu escrever "'dia'", a string não sofrerá a formatação.
+          // 'dd' significa o dia completo (dois digitos)
+          // 'MMMM' vai substituir o mês por extenso. Porém, esse mês precisa ser
+          // traduzido para o mês por extendo em português. Por isso, precisaremos
+          // importar o locale do date fns para o terceiro parâmetro do format()
+          ////// import pt from 'date-fns/locale/pt'; //////
+        { locale: pt }
+      )
+        // Primeiro parâmetro vai a data que desejamos formatar.
+        // Segundo parâmetro vai o formato.
+        // Terceiro parâmetro vai um objeto com a localidade.
+
+      await Notification.create({
+        // Aqui dentro passo os campos
+        content: `Novo agendamento de ${user.name} para ${formattedDate}.`,
+        user: provider_id,
+        // Não precisaremos definir o 'read' porque já existe um valor default.
+      });
+    }
+  ```
+  Uma coisa que deve ser fixado em nossa cabeça, é que no momento que utilizamos um banco não relacional, algumas coisas é legal não mantermos relacionamento. Por exemplo: o conteúdo posso escrever exatamente:
+  > Novo agendamento de Klinton Lee para dia 22 de Junho as 8h40
+  Não iremos armazenar o **id** do usuário(Klinton Lee) para o prestador de serviços, mesmo que o usuário venha alterar futuramente o nome para **Klin**, ainda irá permanecer _Klinton Lee_ de forma estática no momento que a notificação foi gerada. Porque a mensagem é salva dentro do MongoDB exatamente como estava o estado naquele momento. Assim garantimos muita performace. O mesmo serve para a data e o horário.
+
+  O único relacionamento que irei armazenar é _qual o prestador_ precisará receber esta notificação, porque na hora de listarmos os agendamentos precisaremos deste filtro.
+
+  Para visualizarmos nossos dados no MongoDB podemos utilizar o mongoDB Compass Community, ao instalar o aplicativo, basta preencher o dados corretamente e dar um **Connect**, na lateral esquerda aparecerá os databases, mas nesta aplicação criaremos uma nova, pois como não inserimos nenhum registro ainda, o Mongo não criou a nova database que fizemos na conexão **(index.js na pasta database)**.
+
+  Para testarmos, basta ir em Appointments lá no Insomnia e tentar criar um novo agendamento. Ao criar o agendamento, como eu sei que o Mongo criou a notificação? Basta ir no MongoDB Compass Community e dar um refresh.
+
+### Listando as notificações do usuário.
+  O que faremos agora, é listar todas as notificações do prestador de serviços. Para isso começaremos criando uma nova rota e um novo controller **NotificationController.js**:
+  > import NotificationController from './app/controllers/NotificationController';
+  > routes.get('/notifications', NotificationController.index);
+  ```
+    import User from '../models/User';
+    import Notification from '../schemas/Notification';
+
+    class NotificationController {
+      async index(req, res) {
+      // esta rota só poderá ser acessada por prestadores de serviços.
+        const checkIsProvider = await User.findOne({
+          where: { id: req.userId, provider: true },
+            //Estou verificando e o usuário 'logado' é um prestador de serviços.
+        });
+
+        if (!checkIsProvider) {
+          return res.status(401).json({ error: 'Only provider car load notifications' });
+        }
+
+      // Feito a verificação, precisaremos listar as notificações.
+        const notifications = await Notification.find({
+          // Aqui dentro passo os filtros para buscar as 'Notificações'
+          user: req.userId,
+        })
+        .sort({ createdAt: -1 })
+          // Ordena por data de criação (em decrescente)
+        .limit(20);
+          // Limita o número de resultados para as últimas 20 notificações.
+        
+        return res.json(notifications);
+      }
+    }
+
+    export default new NotificationController();
+  ```
+  Lá no insomnia criaremos uma nova pasta **Notification** com um **index(List)** para utilizarmos a rota criada, Lembrando que será necessário enviar a _autenticação (JWT)_.
+
+  Assim que logarmos com o prestador de serviços, ao acessar a rota **get** as notificações irão retornar.
+
+### Marcar notificações como lidas
+  Começaremos criando uma nova rota e adicionando uma rota update em **NotificationController.js**
+  > routes.put('/notifications/:id', NotificationController.update);
+  ```
+    ....
+    class NotificationController {
+      ....
+      async update(req, res) {
+        // Primeiro de tudo, precisaremos buscar a notificação no banco de dados.
+          const notification = await Notification.findByIdAndUpdate(
+            req.params.id,
+            { read: true },
+            { new: true } 
+              // Depois de atualizar, ele irá retornar a 'nova' notificação
+          );
+      }
+      // Pronto, enviando a requisição com o ID da notificação e a propriedade 
+      // read passa a ser true.
+    }
+    ....
+  ```
+### Cancelamento do agendamento
+  O usuário que fez o agendamento poderá cancelar o agendamento que ele fez. Porém, ele só poderá cancelar se estiver a duas horas de distância do horário marcado. Para isso começaremos criando uma nova rota de 'appointments':
+  > routes.delete('/appointments/:id', AppointmentController.delete);
+  Agora abro o arquivo de AppointmentController e crio um novo método:
+  ```
+    ....
+    class AppointmentController {
+      ....
+      async delete (req, res) {
+        // Primeiro preciso buscar os dados do agendamento.
+        const appointment = await Appointment.findByPk(req.params.id);
+
+        if ( appointment.user_id !== req.userId) {
+          return res.status(401).json({
+            error: "You don't have permission to cancel this appointment."
+          });
+        }
+
+        // Agora precisamos fazer a verificação de cancelar em até 2h antes.
+        // Começaremos importando um método do 'date-fns', o { subHours },
+        // que reduz o número de horas de um horário da data.
+
+        const dateWithSub = subHours(appointment.date, 2);
+          // Agora preciso verificar se o horário menos as 2 horas continua sendo
+          // menor que agora. Por exemplo:
+          // agendamento: 13:00
+          // dateWithSub: 11:00
+          // new Date() : 11:25
+          // Significa que o prazo para cancelamento já expirou.
+
+        if (isBefore(dateWithSub, new Date())) {
+          return res.status(401).json({
+            error: 'You can only cancel appointments 2 houras in advance
+          });
+        }
+
+        // Preciso setar diretamente o valor no campo de cancelamento do appointment:
+        appointment.canceled_at = new Date();
+          // Agora a data atual está neste campo.
+
+        await appointment.save();
+        return res.json(appointment);
+      }
+    }
+  ```
+# Nodemailer
+  Como o cancelamento é bem importante para o prestador de serviços se precaver, enviaremos um email para este prestador de serviços. Para isso precisaremos configurar algumas bibliotecas de envio de email, começando pelo **nodemailer**
+  > yarn add nodemailer
+  Agora precisaremos criar um arquivo **mail.js** dentro da pasta config e de dentro vou exportar um objeto contento várias configurações para envios de email.
+  ```
+    export default {
+      host: '',
+      port: '',
+        // porque vou enviar o email através do SMTP (Simple Mail Transfer Protocol)
+      secure: false,
+        // informar se está utilizando SSL ou não.
+      auth: {
+        user: '',
+          // email
+        password: ''
+          // senha
+      },
+      default: {
+        // Aqui eu defino algumas configurações padrão.
+        from: 'Equipe GoBarber <noreply@gobarber.com>'
+      }
+    }
+  ```
+###  Mas afinal, onde consigo o host, port, user e pass?
+  Existem vários serviços que podemos utilizar, como o Amazon SES, Mailgun, Sparkpost, etc. Não é legal utilizarmos o SMTP do próprio Gmail, porque ele tem um limite e pode vir a bloquear. Para estudo utilizaremos o [Mailtrap](https://mailtrap.io/), que serve simplesmente para ambiente de desenvolvimento, ou seja, não funcionará quando a aplicação estiver online.
+  ##### Como começar?
+  Haverá um input para o nome do Inbox e um botão de criação, em seguida basta acessada na lista de Inboxes. Ao abrir o link aparecerá as credenciais para as configurações do **mail.js**. Exemplo:
+  > host: 'smtp.mailtrap.io'
+  > port: 2525
+  > user: '6ec4fee1bf1760'
+  > pass: '645360c7b881a1'
+  Agora precisamos enviar o nosso email, precisaremos de algumas configurações a mais.
+  Vou criar uma pasta **lib** em **src**, onde irei configurar coisas adicionais da aplicação. Por exemplo, envio de email não precisa ser feito de um controller, o controller vai apenas enviar um email dentro de appointments no cancelamento. Mas se eu precisar fazer alguma configuração no email como o remetente padrão, eu sempre preciso fazer isso dentro de uma parte mais isolada, para isso eu crio uma pasta lib com um arquivo **Mail.js**.
+  ```
+    import nodemailer from 'nodemailer';
+    import mailConfig from '../config/mail';
+
+    class Mail {
+      constructor() {
+        const { host, port, secure, auth } = mailConfig;
+
+        this.transporter = nodemailer.createTransport({
+          // trasnporter: como o nodemailer chama uma conexão com algúm serviço 
+          // externo para envio de emails
+            host,
+            port,
+            secure,
+            auth: auth.user ? auth : null
+              //Vou verificar se existe um auth.user, senão vou passar como nulo.
+              // Porque existe algumas estratégias para envio de email que ele não
+              // possui autenticação, usa-se apenas o host, port e o secure.
+        })   
+      }
+
+      sendMail(message) {
+        return this.transporter.sendMail({
+          ...mailConfig.default,
+          ...message,
+        });
+          // Por que criei um novo método e não usei o próprio constructor?
+          // Porque defini algumas variáveis padrão como "from: 'Equipe'...."
+          // Então pegarei todos os dados que são padrão e somar com os dados que
+          // recebo da minha mensagem lá do controller.
+      }
+    }
+
+    export default new Mail();
+  ```
+  Feito isso, vou em **AppointmentController**, importo as configurações do Mail
+  ```
+    ....
+    import Mail from '../../lib/Mail';
+    class AppointmentController {
+      ....
+      async delete (req, res) {
+        const appointment = await Appointment.findByPk(req.params.id, {
+          include: [
+            {
+              model: User,
+              as: 'provider',
+                // Como o appointment possui relacionamento com o User duas vezes,
+                // preciso utilizar o as para retornar os dados do provider.
+              attributes: [ 'name', 'email' ]
+                // E as únicas informações que me interessam do provider são o 
+                // nome e o email.
+            }
+          ],
+            // Posso dar um include (array) para ele incluir as informações 
+            // também do prestador de serviços.
+        }) 
+        ....
+        await Mail.sendMail({
+          to: `${appointment.provider.name} <${appointment.provider.email}>`,
+            // Preciso enviar ao prestador de serviços.
+          subject: 'Agendamento cancelado',
+          text: 'Você tem um novo cancelamento',
+            // Podemos utilizar em forma de html também.
+        })
+        return ....
+      }
+    ....
+  ```
+## Configurando templates de e-mail
+  Template engine são arquivos html, para envio de emails mais personalizados usando HTML e CSS, para isso precisarei instalar duas extensões. Template engines também podem receber variáveis do Node. Utilizaremos o **handlebars** adicionando o **express-handlebars** e o **nodemailer-express-handlebars**
+  > yarn add express-handlebars nodemailer-express-handlebars
+  Agora no arquivo **Mail.js** da pasta _lib_ iremos setar algumas configurações:
+  ```
+    ....
+    import { resolve } from 'path';
+    import exphbs from 'express-handlebars';
+    import nodemailerhbs from 'nodemailer-express-handlebars';
+
+    class Mail {
+      constructor() {
+        ....
+        this.configureTemplates();
+      }
+      configureTemplates() {
+        // começarei definindo um caminho dos templates. Que estarão na pasta 
+        // 'views' dentro da pasta 'app'
+        const viewPath = resolve(__dirname, '..', 'app', 'views', 'emails');
+
+        this.transporter.use('compile', nodemailerhbs({
+          viewEngine: exphbs.create({
+            layoutsDir: resolve(viewPath, 'layouts'),
+            partialsDir: resolve(viewPath, 'partials'),
+            defaultLayout: 'default',
+              // Aí eu posso criar dentro de layouts o arquivo default.hbs
+            extname: '.hbs'
+              // Qual extensão estou utilizando nos arquivos.
+          }),
+          viewPath,
+          extName: '.hbs'
+        }))
+          // O compile é como ele formata os nossos templates
+      }
+    }
+  ```
+  Dentro da pasta **app** vou configurar uma pasta **views**, dentro uma pasta **emails** e dentro duas pastas **layouts** e **partials** e um arquivo **cancellation.handlebars**
+
+  Finalizado, as nossas templates já estão configuradas. Agora como utilizar?
+  
+  Primeiramente vou configurar o layout _default.hbs_, será o layout utilizado para todos envios de email.
+  ```
+    <div style="
+      font-family: Arial, Helvetica, sans-serif; 
+      font-size: 16px;
+      line-height: 1.6;
+      color: #222;
+      max-width: 600px;">
+
+    // Agora como eu quero que o corpo da mensagem venha dentro desta <div>, 
+    // basta eu colocar 3 chaves {{{ body }}}, agora o handlebars sabe por padrão
+    // que o conteúdo da mensagem vai alí dentro.
+
+    {{{ body }}}
+
+    // Agora para importar um partials, utilizo duas chaves com um sinal de maior
+    // e o nome do partials.
+    {{> footer }}
+    
+    </div>
+  ```
+  Agora sobre os partials, são arquivos que eu posso implementar dentro de alguns emails. Por exemplo, poderia criar um partials com algúm tipo de mensagem específica que será repetida em vários emails. E esse partials posso importar para dentro de cada email. Digamos que eu queira criar um footer para o meu email. Dentro de partials criarei um arquivo **footer.hbs**.
+  ```
+    <br />
+    Equipe GoBarber
+  ```
+  #### Trabalhando no layout de cancelamento
+  ```
+    <strong>Olá, {{ provider }}</strong>
+    <p>Houve um cancelamento de horário, confira os detalhes abaixo: </p>
+    <p>
+      <strong>Cliente: </strong> {{ user }} <br />
+      <strong>Data/hora: </strong> {{ date }} <br />
+      <br />
+      <small>
+        O horário está novamente disponível para novos agendamentos.
+      </small>
+    </p>
+  ```
+  Agora lá em AppointmentController, preciso incluir as variáveis, lá no método delete em **await Mail.sendmail...** trocaremos por:
+  ```
+    await Mail.sendMail({
+      to: `${appointment.provider.name} <${appointment.provider.email}>`,
+      subject: 'Agendamento cancelado',
+      template: 'cancellation',
+        // Aqui preciso passar qual template estou utilizando
+      context: {
+        // Aqui eu envio todas as variáveis que o cancellation.hbs está esperando.
+        provider: appointment.provider.name,
+        user: appointment.user.name,
+          // Eu posso incluir na constante 'appointment' o model: User, 
+          // as 'user' e nos attributes, apenas o [ 'name' ]
+        date: format(
+          appointment.date,
+          "'dia' dd 'de' MMMM', às' H:mm'h'",
+          { locale: pt }
+          // Aqui precisamos fazer a formatação mais ou menos igual aquela que
+          // fizemos na criação de um novo agendamento. Por isso usarei o mesmo
+          // método format()
+        );
+      }
+    })
+  ```
+
+## Configurando fila com Redis
+  Uma coisa que podemos notar é que ao enviar o email, essa rota demoram alguns segundos para responder, enquanto que as outras rotas levam milésimos para responder. Mas afinal, como diminuir o tempo de resposta? E mesmo assim esse e-mail ser enviado pelo Node?
+  
+  Existem duas formas de fazer isso: 
+  - Podemos simplesmente tirar o _await_ do **Mail.sendMail({....})**, assim ele não aguardará o email ser enviado para retornar a resposta. E mesmo assim, ele irá enviar o email.
+  ##### Mas quais as desvantagens de fazer isso?
+  No momento que tiramos o _await_, se ocorrer um erro, jamais saberemos sobre ele. Porque já retornamos a resposta ao cliente (que já deu tudo certo.), então desta forma perdemos totalmente o controle. Então a melhor forma de controlarmos ações que levam um pouco mais de tempo e elas não precisam exatamente finalizar no mesmo momento que damos a resposta ao cliente, mas mesmo assim queremos ter controle destas ações (ok, erro, re-tentativa, prioridades, etc.). A melhor forma é através de um recurso chamado **filas** ou **background-jobs**, ou seja, conseguimos configurar dentro da aplicação alguns tipos de serviços que ficam rodando em segundo plano que executam estes trabalhos que levam mais tempo, mas que não modificar a resposta ao da-la pro cliente.
+  ##### Mas como configurar estes background-jobs?
+  Precisaremos antes de mais nada, um banco chave: valor e neste caso usaremos o **Redis**, que é um banco não relacional, mas diferente do MongoDB no Redis não conseguimos ter schemas, estruturas de dados e apenas conseguimos salvar chave e valor. Ou seja, ele vai ser muito mais performático e permitirá cadastrar milhares de registros sem perder qualquer tipo de performace.
+  ##### Startando o Redis
+  > docker run --name redisbarber -p 6379:6379 -d -t redis:alpine
+  Agora precisaremos baixar o [bee-queue](https://github.com/bee-queue/bee-queue) que basicamente é uma ferramenta de fila dentro do Node, extremamente performático. Porém, ele não possui todas as funcionalidades de fila que outros sistemas de fila tem. Existe também o [kue](https://github.com/Automattic/kue), muito mais robusto porém, menos performático.
+  ##### Instalando o Bee Queue
+  > yarn add bee-queue
+  Agora lá na pasta **lib** vou criar um arquivo **Queue.js** onde será configurado tudo relacionado a nossa fila.
+  ```
+    import Bee from 'bee-queue';
+
+    class Queue {
+      constructor() {
+        // Aqui dentro poderei ter várias filas. Na verdade, cada tipo de serviço
+        // terá sua própria fila.
+
+        this.queues = {};
+
+        this.init();
+          // Dividir a parte de inicialização das filas em outro método.
+      }
+
+      init() {
+        // Importaremos uma série de jobs, isso vem lá de background-jobs.
+      }
+    }
+
+    export default new Queue();
+  ```
+  Criaremos uma pasta **jobs** dentro da pasta _app_, com um arquivo **CancellationMail.js**
+  ```
+    import { format, parseISO } from 'date-fns';
+    import pt from 'date-fns/locale/pt';
+    import Mail from '../../lib/Mail';
+
+    class CancellationMail {
+      get key() {
+        return 'CancellationMail';
+          // Retornarei uma chave única, dando a ela o mesmo nome da classe.
+          // Para cada job precisamos de uma chave única.
+      }
+
+      // Então uma fila pode enviar 10 emails e o handle() será chamado para 
+      // o envio de cada email.
+      async handle({ data }) {
+        // vou receber uma propriedade que será configurada posteriormente
+        // e dentro deste objeto virá um 'data' que conterá todas as informações
+        // que vão chegar ao nosso envio de emails
+
+        const { appointment } = data;
+
+        await Mail.sendMail({
+          to: `${appointment.provider.name} <${appointment.provider.email}>`,
+          subject: 'Agendamento cancelado',
+          template: 'cancellation',
+          context: {
+            provider: appointment.provider.name,
+            user: appointment.user.name,
+            date: format(parseISO(appointment.date),
+              "'dia' dd 'de' MMMM', às' H:mm'h'", 
+              {
+                locale: pt,
+              }
+            );
+          },
+        })
+      }
+    }
+
+    export default new CancellationMail();
+  ```
+  Pronto, o nosso job de envio de emails está pronto! Agora no arquivo **Queue.js** iremos importar o **CancelationMail**.
+  ```
+    ....
+    import CancellationMail from '../app/jobs/CancellarionMail';
+    import redisConfig from '../config/redis';
+      // Arquivo criado logo abaixo
+
+    const jobs = [CancellationMail];
+
+    class Queue {
+      constructor() {
+        this.queues = {};
+        ....
+      }
+      
+      init() {
+        jobs.forEach(({ key, handle }) => {
+          // Posso acessar o key e o handle com a desestruturação
+          this.queues[key] = {
+            bee: new Bee(key, {
+              redis: redisConfig,
+            }),
+            handle,
+              // Estamos pegando todos os jobs da aplicação e armazenando dentro
+              // da variável this.queues. Dentro dela armazenamos a nossa fila (bee)
+              // e armazenamos também o método handle (processa o job).
+          }
+        });
+      }
+
+      // primeiro parâmetro: qual fica quero adicionar o job
+      // segundo  parâmetro: dados do job em si
+      add(queue) {
+        // Agora precisamos de um método que adiciona novas filas. Por exemplo,
+        // cada vez que um email for disparado, preciso incluir este job dentro
+        // da fila para ser processado.
+
+        return this.queues[queue].bee.createJob(job).save();
+          // Passo a queue como parâmetro em seguida utilizo o Bee para criar a Job
+          // e salva-la no banco de dados.
+      }
+
+      // Agora toda vez que chamarmos o método add() passando cancellationMail como
+      // primeiro parâmetro e os dados do appointments como segundo parâmetro, ele
+      // irá incluir esse novo trabalho na fila.
+    }
+
+    // Até agora estamos inicializando as nossas filas, adicionando as jobs nas filas, 
+    // porém ainda não estamos processando as filas. Criaremos então um novo método.
+    processQueue() {
+      // Vou percorrer cada um dos jobs, e para cada job receberei o job em si.
+      jobs.forEach(job => {
+        const { bee, handle } = this.queues[job.key];
+
+        bee.process(handle);
+      });
+    }
+
+  ```
+  Na pasta config eu crio um novo arquivo **redis.js**
+  ```
+    export default {
+      host: '127.0.0.1',
+        // Por padrão o redis roda no mesmo host da aplicação
+      port: 6379,
+    }
+  ```
+Agora lá em AppointmentController vou importar a **fila** ao invés do **Mail**, e agora lá onde estavamos enviando o email, adicionaremos:
+  ```
+    ....
+    import CancellationMail from '../jobs/CancellationMail';
+    ....
+
+    await Queue.add(CacellationMail.key, {
+      appointment
+    });
+    ....
+  ```
+Para finalizar, na raiz do projeto criaremos um arquivo **queue.js**
+```
+  import Queue from './lib/Queue';
+
+  Queue.processQueue();
+
+```
+  Mas por que criar este arquivo? Basicamente, porque não iremos executar a aplicação no mesmo node(na mesma execução) que iremos executar a fila. Porque podemos ter a fila rodando em um servidor, em um cor do processador, com mais ou menos recursos totalmente isolados da aplicação, assim a fila nunca irá influenciar na perfomace e no restante  da aplicação.
+
+  Agora podemos ter um segundo terminal rodando a minha fila
+  > node src/queue.js
+  Caso esteja utilizando o sucrase, basta adicionar no **package.json** em **scripts** uma nova propriedade
+  > "queue": "nodemon src/queue.js"
+  e rodar o seguinte script no terminal:
+  > yarn queue
+
+## Monitorando falhas na fila
+Lá no método **processQueue()** dentro de Queue.js da pasta _lib_ basta adicionar uma função para ouvir um evento.
+  ```
+    processQueue() {
+      jobs.forEach( job => {
+        ....
+
+        bee.on('failed', this.handleFailure).process(handle);
+          // Caso ocorra uma falha, ocorrerá uma chamada ao método handleFailure
+      });
+    }
+
+    handleFailure(job, err) {
+      console.log(`Queue ${job.queue.name}: FAILED`, err);
+        // Printa no console o error com o nome da fila (key).
+    }
+  ```
