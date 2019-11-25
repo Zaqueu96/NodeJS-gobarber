@@ -1718,3 +1718,143 @@ Lá no método **processQueue()** dentro de Queue.js da pasta _lib_ basta adicio
         // Printa no console o error com o nome da fila (key).
     }
   ```
+
+## Listando horários disponíveis
+  O que faremos é criar um controller/ rota para listar os horários disponíveis para agendamento de um prestador de serviços dentro de 1 dia, basicamente o Front-end vai nos enviar uma data e o ID do prestador. Ou seja, eu quero saber quais os horários disponíveis para este prestador neste determinado dia e aí eu preciso fazer algumas verificações, se não são datas que já passaram ou até o prazo limite, e se já não existe alguém marcado para este horário. Também vou considerar um intervalo de tempo, por exemplo, só das 8h até as 18h.
+
+  Começaremos criando um controller **AvailableController.js** e importando e definindo uma rota:
+  > import AvailableController from './app/controllers/AvailableController';
+  > routes.get('/providers/:providerId/available', AvailableController.index);
+  ```
+    import { startOfDay, endOfDay, setHours, setMinutes, setSeconds, format } from 'date-fns';
+    import { Op } from 'sequelize';
+    import AppointmentController from '../models/Appointment';
+
+    class AvailableController {
+      async index(req, res) {
+        // Primeiro de tudo, vamos receber uma data nos query params com um campo
+        // "date" e no value vou receber uma data 2019-06-22T00:00:00-03:00, porém
+        // na aplicação do front-end ela está retornando a data em formato timestamp
+        const { date } = req.query
+
+        // Se a variável date nem existir, já retorno um erro:
+        if (!date) {
+          return res.status(400).json({ error:'Invalid date' });
+        }
+
+        // Se a data retornar, preciso converter o timestamp em número inteiro.
+        const searchDate = Number(date);
+
+        // Feito isso preciso realizar um filtro no banco de dados para pegar todos
+        // os agendamentos que estão nesta data, mas como? Primeiro preciso importar
+        // de dentro do 'date-fns' { startOfDay, endOfDay } para nos ajudar a manipular 
+        // as datas. Pegando todos agendamentos do início do dia até o final do dia.
+
+        const appointments = await Appointment.findAll({
+          where: {
+            // Pego todos que são do provider_id que está dentro de req.params (da URL)
+            provider_id: req.params.providerId
+            // Preciso pegar apenas os agendamentos que não estão cancelados. Porque
+            // quero que os horários cancelados estejam disponíveis.
+            canceled_at: null,
+            date: {
+              // Aqui vou precisar dos operadores do Sequelize { Op } from 'sequelize'
+              [Op.between]: [startOfDay(searchDate), endOfDay(searchDate)]
+            }
+          }
+        })
+
+        // Finalizamos a listagem dos agendamentos, agora vou criar uma variável
+        // 'schedule' que são todos horários disponíveis.
+        const schedule = [
+          '08:00',
+            // Precisarei transforma-lo em 2018-06-23 08:00:00;
+          '09:00',
+            // ....
+          '10:00',
+          '11:00',
+          '12:00',
+          '13:00',
+          '14:00',
+          '15:00',
+          '16:00',
+          '17:00',
+          '18:00',
+          '19:00',
+        ];
+
+        // Agora vou criar um objeto que retornará as datas disponíveis.
+        // Vou percorrer o schedule e verificar se o horário já não passou e também
+        // verificar se o mesmo encontra-se disponível. O 'searchDate' virá no
+        // seguinte formato: '2018-06-23 17:59:33, então primeiro eu devo 
+        // transforma-lo de acordo com os valores do meu array schedule.
+        // o 'date-fns' possui alguns métodos como { setHours, setMinutes, setSeconds }
+        const available = schedule.map(time => {
+          const [hour, minute] = time.split(':');
+            // primeiro separo o valor da iteração no ':' da hora e minuto.
+          const value = setSeconds(setMinute(setHour(searchDate, hour), minute), 0);
+            // no setSeconds eu pego uma data qualquer e os segundos como 0, no 
+            // setMinute eu pego outra data qualquer e os minutos da iteração '00',
+            // e no hour eu pego a data e a hora estática do schedule. Agora nós
+            // chegados ao formato mencionado anteriormente. E agora sim, com este
+            // 'value' vou realizar as verificações.
+
+            return {
+              time, 
+              value: format(value, "yyyy-MM-dd'T'HH:mm:ssxxx")
+                // formato 2018-06-23T08:00:00-03:00
+              available: isAfter(value, new Date()) && !appointments.find(a => {
+                format(a.date, 'HH:mm') === time;
+                  // formatando apenas a hora e os minutos para comparar com o schedule.
+              })
+                // no 'date-fns' há um método isAfter que só retornará a propriedade
+                // available como true se o horário já não passou. E verificar também
+                // se o horário não está contido dentro da variável appointments
+                // negando o appointments.find(), significa que se eu encontrar o
+                // horário não está disponível.
+            }
+        })
+
+
+        return res.json(appointments)
+      }
+    }
+
+    export default new AvailableController
+  ```
+  Lá no insomnia vou criar uma pasta chamada Available com um método List e passar a URL, por exemplo: base_url/provider/3/available. Preciso enviar também o token, caso a rota esteja depois da autenticação JWT.
+
+## Campos virtuais no agendamento
+  O que iremos fazer é incluir algumas informações/ campos a mais em cada appointment para o front-end conseguir mostrar visualmente alguma modificação de acordo com estas informações, um agendamente pode já ter ocorrido, então posso querer mostrar algo visual no front-end, então dentro do arquivo **Appointment.js** posso incluri uma nova propriedade _past_ do tipo _Virtual_ que não existe na tabela e apenas no javascript e aí posso criar um método **get()** e dentro dele incluir qualquer código para retornar valor neste campo. PS: incluir nos atributos do método **index** no **AppointmentController.js** os atributos **past e cancelable**.
+  ```
+    import { isBefore } from 'date-fns'
+    
+    class Appointment extends Model {
+      ....
+        super.init({
+          ....
+          past: {
+            type: Sequelize.VIRTUAL,
+            get() {
+              // Preciso verificar se a data do lançamento é antes da data atual, 
+              // significando que ele já passou. Utilizaremos { isBefore } do 'date-fns'
+              return isBefore(this.date, new Date());
+                // isso retornará true se o horário já passou.
+            },
+          },
+          // O próximo campo que precisamos é o 'cancelable', para verificar se é 
+          // cancelável ou não, ou seja, duas horas antes do horário.
+          cancelable: {
+            type: Sequelize.VIRTUAL,
+            get() {
+              // Vou precisar importar { subHours } do 'date-fns', vou tirar duas
+              // horas da data do agendamento e verificar se a data atual ainda é
+              // anterior a 'this.date' menos duas horas.
+              return isBefore(new Date(), subHours(this.date, 2));
+            }
+          }
+        })
+    }
+  ```
+
+## Tratamento de exceções
