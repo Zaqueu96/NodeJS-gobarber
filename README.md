@@ -1858,3 +1858,156 @@ Lá no método **processQueue()** dentro de Queue.js da pasta _lib_ basta adicio
   ```
 
 ## Tratamento de exceções
+  Como saberemos os erros que acontecem na nossa aplicação no momento que ela sobe para produção? Erros que podem ocorrer nas filas, no banco de dados, etc.
+  A melhor forma de ficarmos sabendo deles e realizar a tratativa deles é legal utilizarmos uma ferramenta de monitoração. Podemos utilizar o **Sentry** ou o **Bugsnag**.
+
+  No Sentry basta realizar o login e criar um novo projeto, nesta aplicação utilizaremos o express e o sentry pedirá para baixar a dependência dele.
+  >  yarn add @sentry/node@5.9.0
+  Agora na pasta **config** criaremos o arquivo **sentry.js**, onde armazenaremos a **dsn** conforme as intruções do site oficial.
+  ```
+    export default {
+      dsn: 'https://6fe37fce3d4947e3972459a93d258f0d@sentry.io/1834912'
+    }
+  ```
+  Feito isso, acessaremos na pasta **src** no arquivo **app.js**.
+  ```
+    ....
+    // Primeira coisa que precisaremos é importar o sentry
+    import * as Sentry from '@sentry/node';
+    // E a config que criamos anteriormente
+    import sentryConfig from './config/sentry';
+
+    // Agora já temos tudo para rodar o sentry na aplicação. Começaremos inicializando-o
+    ....
+      constructor() {
+        this.server = express();
+
+        Sentry.init(sentryConfig);
+      }
+    
+    // Seguindo a documentação do sentry, antes de toda requisição eu preciso utilizar o:
+    // app.use(Sentry.Handlers.requestHandler());
+    ....
+    middlewares() {
+      this.server.use(Sentry.Handlers.requestHandler());
+    }
+
+    // Ainda pela documentação eu preciso adicionar o errorHandler depois das rotas
+    ....
+    routes() {
+      ....
+      this.server.use(Sentry.Handlers.errorHandler());
+    }
+
+    
+  ```
+  Com tudo configurado ainda precisaremos instalar uma extensão pro express, por padrão o express não consegue enxergar os erros dos controlers 'async', e consequentemente não enviará ao Sentry.
+  Então precisaremos baixar o express-async-errors e importa-lo no arquivo, depois do express e antes das rotas.
+  > yarn add express-async-errors
+  > import 'express-async-errors';
+
+  Caso seja captado algúm erro, no site do Sentry será possível visualizar em Issue Stream. 
+
+  Até este momento, quando ocorre um erro na requisição, a página fica apenas no carregamento porque ainda não existe uma resposta para erro. Para isso, no constructor adicionaremos o exceptionHandler()
+  ```
+    ....
+    import Youch from 'youch';
+      ....
+      constructor() {
+        ....
+        this.exceptionHandler();
+      }
+
+      ....
+
+      exceptionHandler() {
+        this.server.use(asynct (err, req, res, next)){
+          // Quando criamos um erro para tratamento de exceção, que queremos que o 
+          // erro caia nele, eu preciso receber como primeiro parâmetro o erro.
+          // Quando um middleware recebe quatro parâmetro, o express vai entender
+          // que é um middleware de tratamento de exceções.
+          const errors = await new Youch(err, req).toJSON();
+
+          return res.status(500).json(errors);
+        }
+      }
+  ```
+  No tratamento de exceções utilizaremos uma biblioteca youch, responsável pela tratativa das mensagens de erro para dar uma visualização melhor pro desenvolvedor:
+  > yarn add youch
+  Feito isso, basta importar e instanciar o **Youch**.
+
+## Variáveis de Ambiente
+  São variáveis que podem ter seus valores alterados de acordo com o ambiente que nossa aplicação está rodando. Por exemplo, as variáveis de conexão com o Banco, provavelmente a sua conexão com o banco de dados e autenticação serão diferentes entre ambiente de desenvolvimento e ambiente de produção. Inclusive no próprio ambiente de desenvolvimento ela pode ser diferente, entre a sua máquina e a máquina do colega. Então precisaremos de um arquivo para guardar algumas configurações que são diferentes de acordo com o ambiente que a aplicação está rodando e chamamos isso de variáveis de ambiente.
+
+  Para começarmos criaremos um arquivo **.env** responsável por guardar estas informações. Qual o formato que armazenaremos as informações aí dentro?
+  > NOME=VALOR
+  Se caso estivermos utilizando o **git**, ele deve ser adicionado ao **.gitignore**. Este arquivo não deve ir pro servidor do github por exemplo, porque ele irá conter informações confidenciais.
+  ```
+    APP_URL=http://localhost:3333
+      # A url onde nossa aplicação está rodando
+    NODE_ENV=development
+      # O ambiente que nossa aplicação estará rodando
+
+    # Auth
+    APP_SECRET=bootcampgobarbernode
+
+    # Database
+    DB_HOST=localhost
+    DB_USER=postgres
+    DB_PASS=docker
+    DB_NAME=gobarber
+
+    # Mongo
+    MONGO_URL=mongodb://localhost:27017/gobarber
+
+    # Redis
+    REDIS_HOST=127.0.0.1
+    REDIS_POST=6379
+
+    # Mail
+    MAIL_HOST=smtp.mailtrap.io
+    MAIL_PORT=2525
+    MAIL_USER=6ec4fee1bf1760
+    MAIL=PASS= 645360c7b881a1
+
+    # Sentry
+    # SENTRY_DSN=https://6fe37fce3d4947e3972459a93d258f0d@sentry.io/1834912
+      # Como o sentry só faz sentido em ambiente de produção, afinal, não faz 
+      # sentido captar os erros em desenvolvimento.
+
+  ```
+### Agora como eu carrego estas variáveis na minha aplicação? 
+  Utilizando um módulo chamado dotenv:
+  > yarn add dotenv
+  Agora no arquivo **app.js** e como primeiro importação o dotenv
+  ```
+    import 'dotenv/config';
+  ```
+  Feito isso, ele irá carregar todas as variáveis de ambiente e colocar cada uma destas variáveis dentro de uma variável global do node chamada **process.env**
+  
+  Exemplo: **process.env.DB_HOST**
+
+  Além de importa-lo no **app.js**, preciso importa-lo na **fila**, porque a fila executa em um processo separado do nosso servidor. E também na **database.js**, porém no método CommonJS, já que ainda não suporta o _import/export_.
+  > require('dotenv').config();
+  ou
+  > require('dotenv/config');
+  
+  Pronto, agora só é preciso utilizar estas variáveis ambiente dentro da aplicação.
+
+  Para finalizar, lá no arquivo **app.js** onde foi realizado a configuração do Sentry, o método Sentry pode utilizar a variável de ambiente **NODE_ENV** como condição. Porque se eu estiver em ambiente de produção, estas informações do erro podem ser bem sensíveis para aplicação e alguém pode utiliza-los da forma errada.
+
+  Então eu vou verificar se o ambiente atual é de desenvolvimento, se sim, eu mostro as mensagens. Caso contrário eu apenas retorno um status(500) com um erro chumbado.
+  ```
+    exceptionHandler() {
+      this.server.use(async(err, req, res, next) => {
+        if (process.env.NODE_ENV === 'development') {
+          const errors = await new Youch(err, req).toJSON();
+
+          return res.status(500).json(errors);
+        }
+
+        return res.status(500).json({ error: 'Internal server error' });
+      })
+    }
+  ```
+  É uma boa prática criarmos um arquivo **.env.example**, apenas com os nomes das variáveis para o próximo desenvolvedor saber quais variáveis ele deve configurar para o funcionamento da aplicação.

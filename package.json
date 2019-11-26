@@ -3,5 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "repository": "https://github.com/KlintonLee92/NodeJS-gobarber.git",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@sentry/node": "5.9.0",
+    "express-async-errors": "^3.1.1"
+  }
 }
